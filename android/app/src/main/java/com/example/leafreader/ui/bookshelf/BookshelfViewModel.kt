@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.leafreader.core.model.Book
-import com.example.leafreader.core.model.BookFormat
 import com.example.leafreader.core.repository.BookRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,8 +26,6 @@ class BookshelfViewModel(
 
     private fun loadBooks() {
         viewModelScope.launch {
-            bookRepository.seedInitialMockBooksIfEmpty()
-
             combine(
                 bookRepository.observeAllBooks(),
                 bookRepository.observeRecentBooks()
@@ -84,22 +81,6 @@ class BookshelfViewModel(
                     )
                 }
             }
-        }
-    }
-
-    fun addMockBook(title: String, author: String, format: BookFormat) {
-        viewModelScope.launch {
-            val newBook = Book(
-                id = System.currentTimeMillis(),
-                title = title,
-                author = author,
-                format = format,
-                uri = "content://library/${System.currentTimeMillis()}.${format.name.lowercase()}",
-                addedAt = System.currentTimeMillis(),
-                readingProgress = 0f
-            )
-            bookRepository.insertBook(newBook)
-            _uiState.update { it.copy(userMessage = "已添加书籍：《$title》") }
         }
     }
 

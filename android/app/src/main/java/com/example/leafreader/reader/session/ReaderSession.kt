@@ -35,4 +35,11 @@ class ReaderSession {
 
     fun getActiveEngine(): ReaderEngine? = activeEngine
     fun getCurrentBook(): Book? = currentBook
+
+    suspend fun nextPage(): Boolean = activeEngine?.nextPage() ?: false
+    suspend fun previousPage(): Boolean = activeEngine?.previousPage() ?: false
+    suspend fun restore(locator: BookLocator) { activeEngine?.restore(locator) }
+    suspend fun currentLocator(): BookLocator? = activeEngine?.currentLocator()
+    suspend fun getCurrentContent(): String = activeEngine?.getCurrentContent() ?: ""
+    suspend fun getTableOfContents(): List<Chapter> = activeEngine?.getTableOfContents() ?: emptyList()
 }

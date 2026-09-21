@@ -54,6 +54,26 @@ class EpubReaderEngine : ReaderEngine {
         )
     }
 
+    override suspend fun nextPage(): Boolean {
+        val currentIdx = mockChapters.indexOfFirst { (it.locator as? BookLocator.EpubLocator)?.href == currentLocator.href }
+        if (currentIdx != -1 && currentIdx < mockChapters.size - 1) {
+            val next = mockChapters[currentIdx + 1]
+            currentLocator = next.locator as BookLocator.EpubLocator
+            return true
+        }
+        return false
+    }
+
+    override suspend fun previousPage(): Boolean {
+        val currentIdx = mockChapters.indexOfFirst { (it.locator as? BookLocator.EpubLocator)?.href == currentLocator.href }
+        if (currentIdx > 0) {
+            val prev = mockChapters[currentIdx - 1]
+            currentLocator = prev.locator as BookLocator.EpubLocator
+            return true
+        }
+        return false
+    }
+
     override suspend fun getCurrentContent(): String {
         return """
             在文化大革命的狂潮中，红岸基地在偏远险峻的大兴安岭雷达峰秘密落成。

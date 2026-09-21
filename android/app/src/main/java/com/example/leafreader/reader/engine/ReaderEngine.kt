@@ -25,4 +25,6 @@ interface ReaderEngine {
     suspend fun currentLocator(): BookLocator
     suspend fun search(query: String): List<SearchResult>
     suspend fun getCurrentContent(): String
+    suspend fun nextPage(): Boolean
+    suspend fun previousPage(): Boolean
 }

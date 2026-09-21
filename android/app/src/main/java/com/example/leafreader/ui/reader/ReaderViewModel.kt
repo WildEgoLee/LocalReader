@@ -41,20 +41,24 @@ class ReaderViewModel(
             try {
                 val engine = readerSession.openBook(book)
                 val toc = engine.getTableOfContents()
-                val currentChapter = toc.firstOrNull()
-                val content = engine.getCurrentContent()
                 val locator = engine.currentLocator()
+                val matchedChapter = when (locator) {
+                    is BookLocator.TxtLocator -> toc.find { it.id == locator.chapterId }
+                    is BookLocator.EpubLocator -> toc.find { (it.locator as? BookLocator.EpubLocator)?.href == locator.href }
+                } ?: toc.firstOrNull()
+                val content = engine.getCurrentContent()
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         tableOfContents = toc,
-                        currentChapter = currentChapter,
+                        currentChapter = matchedChapter,
                         content = content,
                         locator = locator,
-                        readingProgress = book.readingProgress
+                        readingProgress = locator.relativeProgress
                     )
                 }
+                saveCurrentProgress()
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, errorMessage = "打开书籍失败: ${e.localizedMessage}") }
             }
@@ -78,39 +82,66 @@ class ReaderViewModel(
     }
 
     fun onPreviousPage() {
-        val currentProgress = _uiState.value.readingProgress
-        val newProgress = (currentProgress - 0.05f).coerceAtLeast(0f)
-        updateProgress(newProgress)
+        viewModelScope.launch {
+            val engine = readerSession.getActiveEngine() ?: return@launch
+            val moved = engine.previousPage()
+            if (moved) {
+                syncStateFromEngine(engine)
+            }
+        }
     }
 
     fun onNextPage() {
-        val currentProgress = _uiState.value.readingProgress
-        val newProgress = (currentProgress + 0.05f).coerceAtMost(1f)
-        updateProgress(newProgress)
+        viewModelScope.launch {
+            val engine = readerSession.getActiveEngine() ?: return@launch
+            val moved = engine.nextPage()
+            if (moved) {
+                syncStateFromEngine(engine)
+            }
+        }
     }
 
     fun onSelectChapter(chapter: Chapter) {
         viewModelScope.launch {
-            val engine = readerSession.getActiveEngine()
-            engine?.restore(chapter.locator)
-            _uiState.update {
-                it.copy(
-                    currentChapter = chapter,
-                    locator = chapter.locator,
-                    readingProgress = chapter.locator.relativeProgress,
-                    overlay = ReaderOverlay.None
-                )
-            }
-            saveCurrentProgress()
+            val engine = readerSession.getActiveEngine() ?: return@launch
+            engine.restore(chapter.locator)
+            syncStateFromEngine(engine)
+            _uiState.update { it.copy(overlay = ReaderOverlay.None) }
         }
     }
 
     fun onProgressSliderChange(progress: Float) {
-        updateProgress(progress)
+        viewModelScope.launch {
+            val engine = readerSession.getActiveEngine() ?: return@launch
+            val toc = _uiState.value.tableOfContents
+            if (toc.isNotEmpty()) {
+                val targetChapter = toc.lastOrNull { it.locator.relativeProgress <= progress } ?: toc.first()
+                engine.restore(targetChapter.locator)
+                syncStateFromEngine(engine)
+            } else {
+                _uiState.update { it.copy(readingProgress = progress) }
+                saveCurrentProgress()
+            }
+        }
     }
 
-    private fun updateProgress(progress: Float) {
-        _uiState.update { it.copy(readingProgress = progress) }
+    private suspend fun syncStateFromEngine(engine: ReaderEngine) {
+        val newContent = engine.getCurrentContent()
+        val newLocator = engine.currentLocator()
+        val toc = _uiState.value.tableOfContents
+        val matchedChapter = when (newLocator) {
+            is BookLocator.TxtLocator -> toc.find { it.id == newLocator.chapterId }
+            is BookLocator.EpubLocator -> toc.find { (it.locator as? BookLocator.EpubLocator)?.href == newLocator.href }
+        } ?: _uiState.value.currentChapter
+
+        _uiState.update {
+            it.copy(
+                content = newContent,
+                locator = newLocator,
+                currentChapter = matchedChapter,
+                readingProgress = newLocator.relativeProgress
+            )
+        }
         saveCurrentProgress()
     }
 

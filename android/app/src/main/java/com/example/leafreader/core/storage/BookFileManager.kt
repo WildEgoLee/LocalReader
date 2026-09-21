@@ -80,7 +80,7 @@ class BookFileManager(private val context: Context) {
         return File(indexesDirectory, "$bookId.idx.json")
     }
 
-    fun deleteBookFile(localFilePath: String) {
+    suspend fun deleteBookFile(localFilePath: String) = withContext(Dispatchers.IO) {
         val file = File(localFilePath)
         if (file.exists()) {
             file.delete()

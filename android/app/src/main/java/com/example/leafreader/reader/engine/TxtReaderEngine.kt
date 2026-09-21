@@ -10,12 +10,15 @@ import com.example.leafreader.reader.txt.CharsetDetector
 import com.example.leafreader.reader.txt.PaginationEngine
 import com.example.leafreader.reader.txt.TextPage
 import com.example.leafreader.reader.txt.TxtStreamReader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.charset.Charset
 
 /**
  * Production-ready TXT reading engine with charset auto-detection,
  * streamed chapter indexing, random-access chunk reading, and pagination.
+ * All I/O operations are strictly performed on Dispatchers.IO.
  */
 class TxtReaderEngine : ReaderEngine {
 
@@ -34,9 +37,14 @@ class TxtReaderEngine : ReaderEngine {
     private var cachedPages: List<TextPage> = emptyList()
     private var currentPageIndex: Int = 0
 
-    override suspend fun open(book: Book) {
+    override suspend fun open(book: Book) = withContext(Dispatchers.IO) {
         currentBook = book
-        val file = File(book.uri.replace("content://", "").replace("file://", ""))
+        val filePath = if (book.uri.startsWith("file://")) {
+            book.uri.removePrefix("file://")
+        } else {
+            book.uri.removePrefix("content://")
+        }
+        val file = File(filePath)
         currentFile = file
 
         // 1. Detect character encoding if file exists, else default UTF-8
@@ -71,7 +79,7 @@ class TxtReaderEngine : ReaderEngine {
         }
     }
 
-    override suspend fun close() {
+    override suspend fun close() = withContext(Dispatchers.IO) {
         currentBook = null
         currentFile = null
         chapterIndex = null
@@ -80,12 +88,12 @@ class TxtReaderEngine : ReaderEngine {
         cachedPages = emptyList()
     }
 
-    override suspend fun getTableOfContents(): List<Chapter> {
-        val idx = chapterIndex ?: return emptyList()
-        return idx.items.map { it.toChapter(idx.totalChars) }
+    override suspend fun getTableOfContents(): List<Chapter> = withContext(Dispatchers.IO) {
+        val idx = chapterIndex ?: return@withContext emptyList()
+        idx.items.map { it.toChapter(idx.totalChars) }
     }
 
-    override suspend fun restore(locator: BookLocator) {
+    override suspend fun restore(locator: BookLocator) = withContext(Dispatchers.IO) {
         if (locator is BookLocator.TxtLocator) {
             currentChapterId = locator.chapterId
             currentCharOffsetInChapter = locator.charOffset
@@ -104,14 +112,14 @@ class TxtReaderEngine : ReaderEngine {
         )
     }
 
-    override suspend fun search(query: String): List<SearchResult> {
+    override suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
         val reader = streamReader
         val idx = chapterIndex
         if (reader != null && idx != null) {
             val txtResults = reader.search(query, idx, maxResults = 30)
-            return txtResults.map { tr ->
+            return@withContext txtResults.map { tr ->
                 SearchResult(
-                    title = tr.chapterTitle,
+                    chapterTitle = tr.chapterTitle,
                     snippet = tr.snippet,
                     locator = BookLocator.TxtLocator(
                         chapterId = tr.chapterId,
@@ -122,76 +130,72 @@ class TxtReaderEngine : ReaderEngine {
                 )
             }
         }
-        return emptyList()
+        emptyList()
     }
 
     override suspend fun getCurrentContent(): String {
-        return cachedChapterContent
+        return if (cachedPages.isNotEmpty()) {
+            cachedPages.getOrNull(currentPageIndex)?.content ?: cachedChapterContent
+        } else {
+            cachedChapterContent
+        }
     }
 
     fun getCurrentPages(): List<TextPage> = cachedPages
 
     fun getCurrentPageIndex(): Int = currentPageIndex
 
-    fun setCurrentPageIndex(index: Int) {
-        if (cachedPages.isNotEmpty()) {
-            val clamped = index.coerceIn(0, cachedPages.size - 1)
-            currentPageIndex = clamped
-            currentCharOffsetInChapter = cachedPages[clamped].startCharOffset
+    override suspend fun nextPage(): Boolean = withContext(Dispatchers.IO) {
+        if (cachedPages.isNotEmpty() && currentPageIndex < cachedPages.size - 1) {
+            currentPageIndex++
+            currentCharOffsetInChapter = cachedPages[currentPageIndex].startCharOffset
             updateRelativeProgress()
-        }
-    }
-
-    fun nextPage(): Boolean {
-        if (currentPageIndex < cachedPages.size - 1) {
-            setCurrentPageIndex(currentPageIndex + 1)
-            return true
+            return@withContext true
         } else {
-            // Next chapter
-            val chapters = chapterIndex?.items ?: return false
+            // Move to next chapter
+            val chapters = chapterIndex?.items ?: return@withContext false
             val currentIdx = chapters.indexOfFirst { it.id == currentChapterId }
             if (currentIdx != -1 && currentIdx < chapters.size - 1) {
                 val nextChapter = chapters[currentIdx + 1]
                 loadChapter(nextChapter.id)
-                setCurrentPageIndex(0)
-                return true
+                currentPageIndex = 0
+                currentCharOffsetInChapter = 0
+                updateRelativeProgress()
+                return@withContext true
             }
         }
-        return false
+        false
     }
 
-    fun previousPage(): Boolean {
+    override suspend fun previousPage(): Boolean = withContext(Dispatchers.IO) {
         if (currentPageIndex > 0) {
-            setCurrentPageIndex(currentPageIndex - 1)
-            return true
+            currentPageIndex--
+            currentCharOffsetInChapter = cachedPages[currentPageIndex].startCharOffset
+            updateRelativeProgress()
+            return@withContext true
         } else {
-            // Previous chapter
-            val chapters = chapterIndex?.items ?: return false
+            // Move to previous chapter
+            val chapters = chapterIndex?.items ?: return@withContext false
             val currentIdx = chapters.indexOfFirst { it.id == currentChapterId }
             if (currentIdx > 0) {
                 val prevChapter = chapters[currentIdx - 1]
                 loadChapter(prevChapter.id)
-                setCurrentPageIndex((cachedPages.size - 1).coerceAtLeast(0))
-                return true
+                currentPageIndex = (cachedPages.size - 1).coerceAtLeast(0)
+                currentCharOffsetInChapter = cachedPages.getOrNull(currentPageIndex)?.startCharOffset ?: 0
+                updateRelativeProgress()
+                return@withContext true
             }
         }
-        return false
+        false
     }
 
-    private fun loadChapter(chapterId: String) {
+    private suspend fun loadChapter(chapterId: String) = withContext(Dispatchers.IO) {
         currentChapterId = chapterId
-        val idx = chapterIndex ?: return
-        val chapterItem = idx.getChapterById(chapterId) ?: idx.items.firstOrNull() ?: return
+        val idx = chapterIndex ?: return@withContext
+        val chapterItem = idx.getChapterById(chapterId) ?: idx.items.firstOrNull() ?: return@withContext
 
-        cachedChapterContent = if (streamReader != null) {
-            // Synchronously in memory for cached buffer or via runBlocking for instant UI
-            java.io.RandomAccessFile(currentFile!!, "r").use { raf ->
-                val len = (chapterItem.endByteOffset - chapterItem.startByteOffset).coerceAtLeast(0L).toInt()
-                val buf = ByteArray(minOf(len, 1024 * 512))
-                raf.seek(chapterItem.startByteOffset)
-                val read = raf.read(buf, 0, buf.size)
-                if (read > 0) String(buf, 0, read, detectedCharset) else ""
-            }
+        cachedChapterContent = if (streamReader != null && currentFile?.exists() == true) {
+            streamReader!!.readChapterContent(chapterItem.startByteOffset, chapterItem.endByteOffset)
         } else {
             getDefaultChapterText(chapterItem.title)
         }

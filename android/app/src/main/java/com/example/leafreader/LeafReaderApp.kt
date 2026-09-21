@@ -1,16 +1,18 @@
 package com.example.leafreader
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.leafreader.core.model.Book
-import com.example.leafreader.core.model.BookFormat
 import com.example.leafreader.ui.adaptive.AdaptiveNavigationSuite
 import com.example.leafreader.ui.adaptive.LeafDestination
 import com.example.leafreader.ui.adaptive.rememberWindowAdaptiveInfo
@@ -37,9 +39,18 @@ fun LeafReaderApp(
     readerViewModel: ReaderViewModel,
     settingsViewModel: SettingsViewModel
 ) {
+    val context = LocalContext.current
     val adaptiveInfo = rememberWindowAdaptiveInfo()
     val navController = rememberNavController()
     var currentTab by remember { mutableStateOf(LeafDestination.BOOKSHELF) }
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            bookshelfViewModel.importBookFromUri(context, it)
+        }
+    }
 
     val bookshelfState by bookshelfViewModel.uiState.collectAsState()
     val readerState by readerViewModel.uiState.collectAsState()
@@ -66,10 +77,8 @@ fun LeafReaderApp(
                                     navController.navigate(LeafDestinations.READER)
                                 },
                                 onAddBookClick = {
-                                    bookshelfViewModel.addMockBook(
-                                        title = "新导入测试小说",
-                                        author = "本地作者",
-                                        format = BookFormat.TXT
+                                    filePickerLauncher.launch(
+                                        arrayOf("text/plain", "application/epub+zip", "*/*")
                                     )
                                 },
                                 onToggleViewMode = { bookshelfViewModel.toggleViewMode() },

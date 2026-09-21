@@ -1,5 +1,7 @@
 package com.example.leafreader.reader.txt
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.nio.charset.Charset
@@ -13,16 +15,17 @@ object CharsetDetector {
     val CHARSET_GBK: Charset = Charset.forName("GBK")
     val CHARSET_UTF8: Charset = Charsets.UTF_8
     val CHARSET_UTF16LE: Charset = Charsets.UTF_16LE
-    val CHARSET_UTF16BE: Charsets.UTF_16BE
+    val CHARSET_UTF16BE: Charset = Charsets.UTF_16BE
     val CHARSET_BIG5: Charset = Charset.forName("Big5")
 
     /**
      * Inspects the file header and content samples to detect the charset.
      * Samples up to 64KB to achieve maximum accuracy without loading the entire file.
+     * Executes safely off the main thread.
      */
-    fun detect(file: File): Charset {
+    suspend fun detect(file: File): Charset = withContext(Dispatchers.IO) {
         if (!file.exists() || file.length() == 0L) {
-            return CHARSET_UTF8
+            return@withContext CHARSET_UTF8
         }
 
         val sampleSize = minOf(file.length(), 65536L).toInt()
@@ -120,10 +123,10 @@ object CharsetDetector {
         }
 
         if (gbkValidPairs > 0 && gbkInvalidPairs <= gbkValidPairs * 0.05) {
-            return CHARSET_GBK
+            return@withContext CHARSET_GBK
         }
 
         // Fallback default
-        return if (isValidUtf8) CHARSET_UTF8 else CHARSET_GBK
+        if (isValidUtf8) CHARSET_UTF8 else CHARSET_GBK
     }
 }
