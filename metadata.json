@@ -1,0 +1,6 @@
+{
+  "name": "LeafReader",
+  "description": "Local-first Android ebook reader for TXT and EPUB novels with adaptive layouts for phones, tablets, and foldables.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
