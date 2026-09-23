@@ -9,6 +9,7 @@ import com.example.leafreader.reader.txt.ChapterIndexer
 import com.example.leafreader.reader.txt.CharsetDetector
 import com.example.leafreader.reader.txt.PaginationEngine
 import com.example.leafreader.reader.txt.TextPage
+import com.example.leafreader.reader.txt.TextSearch
 import com.example.leafreader.reader.txt.TxtStreamReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -113,24 +114,29 @@ class TxtReaderEngine : ReaderEngine {
     }
 
     override suspend fun search(query: String): List<SearchResult> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
         val reader = streamReader
-        val idx = chapterIndex
-        if (reader != null && idx != null) {
-            val txtResults = reader.search(query, idx, maxResults = 30)
-            return@withContext txtResults.map { tr ->
-                SearchResult(
-                    chapterTitle = tr.chapterTitle,
-                    snippet = tr.snippet,
-                    locator = BookLocator.TxtLocator(
-                        chapterId = tr.chapterId,
-                        charOffset = tr.charOffsetInChapter,
-                        paragraphIndex = 0,
-                        relativeProgress = tr.relativeProgress
-                    )
-                )
-            }
+        val idx = chapterIndex ?: return@withContext emptyList()
+        if (reader != null && currentFile?.exists() == true) {
+            return@withContext reader.search(query, idx, maxResults = 40).map { it.toEngineResult() }
         }
-        emptyList()
+
+        val results = mutableListOf<SearchResult>()
+        for (item in idx.items) {
+            val remaining = 40 - results.size
+            if (remaining <= 0) break
+            val content = getDefaultChapterText(item.title)
+            results += TextSearch.scan(
+                content = content,
+                query = query,
+                chapterId = item.id,
+                chapterTitle = item.title,
+                chapterStartCharOffset = item.startCharOffset,
+                totalChars = idx.totalChars,
+                limit = remaining
+            ).map { it.toEngineResult() }
+        }
+        results
     }
 
     override suspend fun getCurrentContent(): String {
@@ -187,6 +193,38 @@ class TxtReaderEngine : ReaderEngine {
             }
         }
         false
+    }
+
+    override fun pageCursor(): PageCursor {
+        val count = cachedPages.size.coerceAtLeast(1)
+        val index = currentPageIndex.coerceIn(0, count - 1)
+        return PageCursor(index, count)
+    }
+
+    override suspend fun applyLayout(layout: PageLayout) = withContext(Dispatchers.IO) {
+        paginationEngine = PaginationEngine(
+            charsPerLineEstimated = layout.charsPerLine,
+            linesPerPageEstimated = layout.linesPerPage
+        )
+        if (cachedChapterContent.isEmpty()) return@withContext
+        val offset = currentCharOffsetInChapter
+        cachedPages = paginationEngine.paginate(cachedChapterContent)
+        currentPageIndex = paginationEngine.findPageIndexForOffset(cachedPages, offset)
+        currentCharOffsetInChapter = cachedPages.getOrNull(currentPageIndex)?.startCharOffset ?: offset
+        updateRelativeProgress()
+    }
+
+    private fun com.example.leafreader.reader.txt.TxtSearchResult.toEngineResult(): SearchResult {
+        return SearchResult(
+            chapterTitle = chapterTitle,
+            snippet = snippet,
+            locator = BookLocator.TxtLocator(
+                chapterId = chapterId,
+                charOffset = charOffsetInChapter,
+                paragraphIndex = 0,
+                relativeProgress = relativeProgress
+            )
+        )
     }
 
     private suspend fun loadChapter(chapterId: String) = withContext(Dispatchers.IO) {

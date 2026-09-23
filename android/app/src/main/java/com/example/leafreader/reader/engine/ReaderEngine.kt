@@ -11,6 +11,31 @@ data class SearchResult(
 )
 
 /**
+ * Logical page window. Index is zero-based inside the current chapter
+ * (or spine item, for formats that do not paginate characters).
+ */
+data class PageCursor(
+    val index: Int,
+    val count: Int
+)
+
+/**
+ * Estimated characters that fit one screen. The engine reflows from the
+ * saved character offset, so a font or spacing change never drifts the locator.
+ */
+data class PageLayout(
+    val charsPerLine: Int = 24,
+    val linesPerPage: Int = 18
+)
+
+fun pageLayoutFor(fontSizeSp: Int, lineSpacingMultiplier: Float): PageLayout {
+    val size = fontSizeSp.coerceIn(12, 36)
+    val charsPerLine = (400 / size).coerceIn(10, 46)
+    val linesPerPage = (28f / lineSpacingMultiplier.coerceIn(1f, 2.4f)).toInt().coerceIn(6, 30)
+    return PageLayout(charsPerLine, linesPerPage)
+}
+
+/**
  * Unified Reader Engine abstraction.
  *
  * The UI layer remains strictly agnostic of underlying book file formats.
@@ -27,4 +52,9 @@ interface ReaderEngine {
     suspend fun getCurrentContent(): String
     suspend fun nextPage(): Boolean
     suspend fun previousPage(): Boolean
+
+    fun pageCursor(): PageCursor = PageCursor(0, 1)
+
+    /** Reflow the current chapter. Locator character offset is preserved. */
+    suspend fun applyLayout(layout: PageLayout) {}
 }

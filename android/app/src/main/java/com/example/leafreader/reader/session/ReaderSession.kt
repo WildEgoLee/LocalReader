@@ -5,7 +5,10 @@ import com.example.leafreader.core.model.BookFormat
 import com.example.leafreader.core.model.BookLocator
 import com.example.leafreader.core.model.Chapter
 import com.example.leafreader.reader.engine.EpubReaderEngine
+import com.example.leafreader.reader.engine.PageCursor
+import com.example.leafreader.reader.engine.PageLayout
 import com.example.leafreader.reader.engine.ReaderEngine
+import com.example.leafreader.reader.engine.SearchResult
 import com.example.leafreader.reader.engine.TxtReaderEngine
 
 /**
@@ -42,4 +45,7 @@ class ReaderSession {
     suspend fun currentLocator(): BookLocator? = activeEngine?.currentLocator()
     suspend fun getCurrentContent(): String = activeEngine?.getCurrentContent() ?: ""
     suspend fun getTableOfContents(): List<Chapter> = activeEngine?.getTableOfContents() ?: emptyList()
+    suspend fun search(query: String): List<SearchResult> = activeEngine?.search(query) ?: emptyList()
+    fun pageCursor(): PageCursor = activeEngine?.pageCursor() ?: PageCursor(0, 1)
+    suspend fun applyLayout(layout: PageLayout) { activeEngine?.applyLayout(layout) }
 }

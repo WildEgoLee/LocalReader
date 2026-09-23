@@ -72,7 +72,7 @@ class PaginationEngine(
 
     fun findPageIndexForOffset(pages: List<TextPage>, charOffset: Int): Int {
         if (pages.isEmpty()) return 0
-        val found = pages.indexOfFirst { charOffset in it.startCharOffset until it.endCharOffset }
+        val found = pages.indexOfLast { charOffset >= it.startCharOffset }
         return if (found != -1) found else 0
     }
 }

@@ -49,9 +49,40 @@ class EpubReaderEngine : ReaderEngine {
     }
 
     override suspend fun search(query: String): List<SearchResult> {
-        return listOf(
-            SearchResult("第一部 乱纪元", "...物理学从来就没有存在过，将来的物理学也不会存在...", currentLocator)
-        )
+        if (query.isBlank()) return emptyList()
+        val body = getCurrentContent()
+        val results = mutableListOf<SearchResult>()
+        for (chapter in mockChapters) {
+            val locator = chapter.locator as BookLocator.EpubLocator
+            val haystack = if (locator.href == currentLocator.href) {
+                chapter.title + "\n" + body
+            } else {
+                chapter.title
+            }
+            var from = 0
+            while (results.size < 20) {
+                val found = haystack.indexOf(query, from, ignoreCase = true)
+                if (found < 0) break
+                val start = (found - 16).coerceAtLeast(0)
+                val end = (found + query.length + 24).coerceAtMost(haystack.length)
+                val prefix = if (start > 0) "…" else ""
+                val suffix = if (end < haystack.length) "…" else ""
+                results += SearchResult(
+                    chapterTitle = chapter.title,
+                    snippet = prefix + haystack.substring(start, end).replace('\n', ' ') + suffix,
+                    locator = locator
+                )
+                from = found + query.length.coerceAtLeast(1)
+            }
+        }
+        return results
+    }
+
+    override fun pageCursor(): PageCursor {
+        val index = mockChapters.indexOfFirst {
+            (it.locator as? BookLocator.EpubLocator)?.href == currentLocator.href
+        }.let { if (it < 0) 0 else it }
+        return PageCursor(index, mockChapters.size.coerceAtLeast(1))
     }
 
     override suspend fun nextPage(): Boolean {

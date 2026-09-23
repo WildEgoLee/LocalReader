@@ -112,6 +112,8 @@ fun LeafReaderApp(
                     onPreviousPage = { readerViewModel.onPreviousPage() },
                     onNextPage = { readerViewModel.onNextPage() },
                     onSelectChapter = { readerViewModel.onSelectChapter(it) },
+                    onSearchQueryChange = { readerViewModel.onSearchQueryChanged(it) },
+                    onSelectSearchResult = { readerViewModel.onSelectSearchResult(it) },
                     onProgressSliderChange = { readerViewModel.onProgressSliderChange(it) },
                     onThemeChange = { readerViewModel.updateTheme(it) },
                     onFontSizeChange = { readerViewModel.updateFontSize(it) },

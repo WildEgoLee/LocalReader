@@ -43,6 +43,7 @@ class TxtStreamReader(
 
     /**
      * Searches for occurrences of a query string across the file stream.
+     * Stops after [maxResults] hits so a common word cannot scan an entire novel into memory.
      */
     suspend fun search(
         query: String,
@@ -53,31 +54,18 @@ class TxtStreamReader(
         val results = mutableListOf<TxtSearchResult>()
 
         for (chapter in chapterIndex.items) {
+            val remaining = maxResults - results.size
+            if (remaining <= 0) break
             val content = readChapterContent(chapter.startByteOffset, chapter.endByteOffset)
-            var searchFromIndex = 0
-            while (true) {
-                val foundIndex = content.indexOf(query, searchFromIndex, ignoreCase = true)
-                if (foundIndex == -1) break
-
-                val snippetStart = (foundIndex - 20).coerceAtLeast(0)
-                val snippetEnd = (foundIndex + query.length + 30).coerceAtMost(content.length)
-                val snippet = "..." + content.substring(snippetStart, snippetEnd).replace("\n", " ") + "..."
-
-                results.add(
-                    TxtSearchResult(
-                        chapterId = chapter.id,
-                        chapterTitle = chapter.title,
-                        charOffsetInChapter = foundIndex,
-                        snippet = snippet,
-                        relativeProgress = if (chapterIndex.totalChars > 0) {
-                            ((chapter.startCharOffset + foundIndex).toFloat() / chapterIndex.totalChars).coerceIn(0f, 1f)
-                        } else 0f
-                    )
-                )
-
-                if (results.size >= maxResults) return@withContext results
-                searchFromIndex = foundIndex + query.length
-            }
+            results += TextSearch.scan(
+                content = content,
+                query = query,
+                chapterId = chapter.id,
+                chapterTitle = chapter.title,
+                chapterStartCharOffset = chapter.startCharOffset,
+                totalChars = chapterIndex.totalChars,
+                limit = remaining
+            )
         }
 
         results

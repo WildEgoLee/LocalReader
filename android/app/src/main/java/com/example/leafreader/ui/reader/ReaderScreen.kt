@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.NavigateBefore
 import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +54,7 @@ import com.example.leafreader.core.model.Chapter
 import com.example.leafreader.core.model.ReaderColumnMode
 import com.example.leafreader.core.model.ReaderThemePalette
 import com.example.leafreader.core.model.ReadingPageMode
+import com.example.leafreader.reader.engine.SearchResult
 import com.example.leafreader.ui.adaptive.WindowAdaptiveInfo
 import com.example.leafreader.ui.adaptive.WindowWidthSizeClass
 import com.example.leafreader.ui.theme.AmoledBackground
@@ -76,6 +78,8 @@ fun ReaderScreen(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onSelectChapter: (Chapter) -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onSelectSearchResult: (SearchResult) -> Unit,
     onProgressSliderChange: (Float) -> Unit,
     onThemeChange: (ReaderThemePalette) -> Unit,
     onFontSizeChange: (Int) -> Unit,
@@ -158,7 +162,7 @@ fun ReaderScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${(uiState.readingProgress * 100).toInt()}%",
+                            text = "${uiState.pageIndex + 1}/${uiState.pageCount}",
                             style = MaterialTheme.typography.labelSmall,
                             color = textColor.copy(alpha = 0.5f)
                         )
@@ -234,6 +238,9 @@ fun ReaderScreen(
                         IconButton(onClick = { onShowOverlay(ReaderOverlay.Toc) }) {
                             Icon(Icons.Default.FormatListBulleted, contentDescription = "目录")
                         }
+                        IconButton(onClick = { onShowOverlay(ReaderOverlay.Search) }) {
+                            Icon(Icons.Default.Search, contentDescription = "全书检索")
+                        }
                         IconButton(onClick = { onShowOverlay(ReaderOverlay.Settings) }) {
                             Icon(Icons.Default.Settings, contentDescription = "阅读设置")
                         }
@@ -273,7 +280,7 @@ fun ReaderScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "${(uiState.readingProgress * 100).toInt()}%",
+                            text = "${uiState.pageIndex + 1} / ${uiState.pageCount} · ${(uiState.readingProgress * 100).toInt()}%",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -321,6 +328,17 @@ fun ReaderScreen(
                 onLineSpacingChange = onLineSpacingChange,
                 onPageModeChange = onPageModeChange,
                 onColumnModeChange = onColumnModeChange,
+                onDismiss = onHideOverlay
+            )
+        }
+
+        if (uiState.overlay == ReaderOverlay.Search) {
+            ReaderSearchSheet(
+                query = uiState.searchQuery,
+                results = uiState.searchResults,
+                isSearching = uiState.isSearching,
+                onQueryChange = onSearchQueryChange,
+                onSelectResult = onSelectSearchResult,
                 onDismiss = onHideOverlay
             )
         }
