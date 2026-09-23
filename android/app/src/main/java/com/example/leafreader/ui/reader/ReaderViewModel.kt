@@ -38,6 +38,7 @@ class ReaderViewModel(
                 _uiState.update { it.copy(settings = settings) }
                 val engine = readerSession.getActiveEngine() ?: return@collect
                 engine.applyLayout(pageLayoutFor(settings.fontSizeSp, settings.lineSpacingMultiplier))
+                if (_uiState.value.isLoading) return@collect
                 syncStateFromEngine(engine)
             }
         }
