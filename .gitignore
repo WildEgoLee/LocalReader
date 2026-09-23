@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Android / Gradle. Do not commit SDK paths or local caches.
+**/.gradle/
+**/local.properties
+*.iml
+**/.idea/
+*.apk
+*.aab
+captures/

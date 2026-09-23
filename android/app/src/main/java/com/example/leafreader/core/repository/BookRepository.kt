@@ -55,7 +55,7 @@ class BookRepositoryImpl(
 
         importResult.mapCatching { info ->
             val initialLocator = if (info.format == BookFormat.TXT) {
-                BookLocator.TxtLocator(chapterId = "c1", charOffset = 0, paragraphIndex = 0, relativeProgress = 0f)
+                null
             } else {
                 BookLocator.EpubLocator(href = "", relativeProgress = 0f)
             }
@@ -73,7 +73,7 @@ class BookRepositoryImpl(
                 lastReadAt = null,
                 readingProgress = 0f,
                 currentLocatorJson = initialLocatorJson,
-                lastChapterTitle = "第一章"
+                lastChapterTitle = null
             )
             val generatedId = bookDao.insertBook(bookEntity)
             bookEntity.copy(id = generatedId).toDomain()

@@ -11,7 +11,9 @@ sealed interface BookLocator {
     val relativeProgress: Float
 
     /**
-     * TXT logical locator based on chapter id and character offsets.
+     * TXT logical locator. [charOffset] is the only stable position inside the
+     * chapter: reflow may recompute the page index, but it must not rewrite this
+     * offset. Turning a page is navigation and may move it.
      */
     data class TxtLocator(
         val chapterId: String,

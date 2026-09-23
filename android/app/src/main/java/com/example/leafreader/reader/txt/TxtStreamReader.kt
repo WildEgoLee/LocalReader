@@ -7,75 +7,53 @@ import java.io.RandomAccessFile
 import java.nio.charset.Charset
 
 /**
- * Random-access stream reader for text files.
- * Seeks directly to byte offsets, avoiding reading irrelevant parts of large files.
+ * Random-access reader. Chapter bytes are decoded exactly over
+ * [startByte, endByte). Search streams the same ranges and does not truncate them.
  */
 class TxtStreamReader(
     private val file: File,
     private val charset: Charset
 ) {
-    /**
-     * Reads chapter content directly from file by byte boundaries.
-     */
     suspend fun readChapterContent(
         startByte: Long,
-        endByte: Long,
-        maxBytes: Int = 1024 * 512 // 512KB safety cap per single chapter
+        endByte: Long
     ): String = withContext(Dispatchers.IO) {
-        if (!file.exists() || startByte >= file.length()) {
+        if (!file.exists() || startByte < 0L || startByte >= file.length()) {
             return@withContext ""
         }
+        val boundedEnd = minOf(endByte, file.length())
+        val size = (boundedEnd - startByte).coerceAtLeast(0L)
+        if (size == 0L) return@withContext ""
+        if (size > Int.MAX_VALUE) error("chapter byte range does not fit in memory")
 
-        val bytesToRead = minOf((endByte - startByte).coerceAtLeast(0L), maxBytes.toLong()).toInt()
-        if (bytesToRead <= 0) return@withContext ""
-
-        val buffer = ByteArray(bytesToRead)
+        val buffer = ByteArray(size.toInt())
         RandomAccessFile(file, "r").use { raf ->
             raf.seek(startByte)
-            val read = raf.read(buffer, 0, bytesToRead)
-            if (read > 0) {
-                String(buffer, 0, read, charset)
-            } else {
-                ""
+            var off = 0
+            while (off < buffer.size) {
+                val n = raf.read(buffer, off, buffer.size - off)
+                if (n < 0) break
+                off += n
             }
+            val filled = if (off == buffer.size) buffer else buffer.copyOf(off)
+            TxtKernel.decode(filled, charset)
         }
     }
 
-    /**
-     * Searches for occurrences of a query string across the file stream.
-     * Stops after [maxResults] hits so a common word cannot scan an entire novel into memory.
-     */
     suspend fun search(
         query: String,
         chapterIndex: ChapterIndex,
         maxResults: Int = 50
     ): List<TxtSearchResult> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val results = mutableListOf<TxtSearchResult>()
-
-        for (chapter in chapterIndex.items) {
-            val remaining = maxResults - results.size
-            if (remaining <= 0) break
-            val content = readChapterContent(chapter.startByteOffset, chapter.endByteOffset)
-            results += TextSearch.scan(
-                content = content,
-                query = query,
-                chapterId = chapter.id,
-                chapterTitle = chapter.title,
-                chapterStartCharOffset = chapter.startCharOffset,
-                totalChars = chapterIndex.totalChars,
-                limit = remaining
+        TxtKernel.search(file, chapterIndex.asKernelIndex(), query, maxResults).map { hit ->
+            TxtSearchResult(
+                chapterId = hit.chapterId,
+                chapterTitle = hit.chapterTitle,
+                charOffsetInChapter = hit.charOffsetInChapter,
+                snippet = hit.snippet,
+                relativeProgress = hit.relativeProgress
             )
         }
-
-        results
     }
 }
-
-data class TxtSearchResult(
-    val chapterId: String,
-    val chapterTitle: String,
-    val charOffsetInChapter: Int,
-    val snippet: String,
-    val relativeProgress: Float
-)

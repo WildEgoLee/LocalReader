@@ -56,7 +56,7 @@ object BookLocatorSerializer {
             when (obj.optString(KEY_TYPE)) {
                 TYPE_TXT -> {
                     BookLocator.TxtLocator(
-                        chapterId = obj.optString(KEY_CHAPTER_ID, "c1"),
+                        chapterId = obj.optString(KEY_CHAPTER_ID, ""),
                         charOffset = obj.optInt(KEY_CHAR_OFFSET, 0),
                         paragraphIndex = obj.optInt(KEY_PARAGRAPH_INDEX, 0),
                         relativeProgress = obj.optDouble(KEY_RELATIVE_PROGRESS, 0.0).toFloat()

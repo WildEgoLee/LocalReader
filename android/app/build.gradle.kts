@@ -38,6 +38,11 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        getByName("main") {
+            java.srcDir("../kernel/src/main/kotlin")
+        }
+    }
 }
 
 dependencies {

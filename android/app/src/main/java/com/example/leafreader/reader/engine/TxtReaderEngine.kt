@@ -3,13 +3,14 @@ package com.example.leafreader.reader.engine
 import com.example.leafreader.core.model.Book
 import com.example.leafreader.core.model.BookLocator
 import com.example.leafreader.core.model.Chapter
-import com.example.leafreader.reader.txt.ChapterDetector
 import com.example.leafreader.reader.txt.ChapterIndex
+import com.example.leafreader.reader.txt.ChapterIndexItem
 import com.example.leafreader.reader.txt.ChapterIndexer
 import com.example.leafreader.reader.txt.CharsetDetector
 import com.example.leafreader.reader.txt.PaginationEngine
 import com.example.leafreader.reader.txt.TextPage
 import com.example.leafreader.reader.txt.TextSearch
+import com.example.leafreader.reader.txt.TxtKernel
 import com.example.leafreader.reader.txt.TxtStreamReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,7 +31,7 @@ class TxtReaderEngine : ReaderEngine {
     private var streamReader: TxtStreamReader? = null
     private var paginationEngine = PaginationEngine()
 
-    private var currentChapterId: String = "c1"
+    private var currentChapterId: String = ""
     private var currentCharOffsetInChapter: Int = 0
     private var currentProgress: Float = 0f
 
@@ -72,11 +73,9 @@ class TxtReaderEngine : ReaderEngine {
         if (locator != null) {
             restore(locator)
         } else {
-            val firstChapter = chapterIndex?.items?.firstOrNull()
-            currentChapterId = firstChapter?.id ?: "c1"
             currentCharOffsetInChapter = 0
             currentProgress = 0f
-            loadChapter(currentChapterId)
+            loadChapter("")
         }
     }
 
@@ -96,11 +95,9 @@ class TxtReaderEngine : ReaderEngine {
 
     override suspend fun restore(locator: BookLocator) = withContext(Dispatchers.IO) {
         if (locator is BookLocator.TxtLocator) {
-            currentChapterId = locator.chapterId
-            currentCharOffsetInChapter = locator.charOffset
+            currentCharOffsetInChapter = locator.charOffset.coerceAtLeast(0)
             currentProgress = locator.relativeProgress
-            loadChapter(currentChapterId)
-            currentPageIndex = paginationEngine.findPageIndexForOffset(cachedPages, currentCharOffsetInChapter)
+            loadChapter(locator.chapterId)
         }
     }
 
@@ -157,40 +154,33 @@ class TxtReaderEngine : ReaderEngine {
             currentCharOffsetInChapter = cachedPages[currentPageIndex].startCharOffset
             updateRelativeProgress()
             return@withContext true
-        } else {
-            // Move to next chapter
-            val chapters = chapterIndex?.items ?: return@withContext false
-            val currentIdx = chapters.indexOfFirst { it.id == currentChapterId }
-            if (currentIdx != -1 && currentIdx < chapters.size - 1) {
-                val nextChapter = chapters[currentIdx + 1]
-                loadChapter(nextChapter.id)
-                currentPageIndex = 0
-                currentCharOffsetInChapter = 0
-                updateRelativeProgress()
-                return@withContext true
-            }
+        }
+        val chapters = chapterIndex?.items ?: return@withContext false
+        val currentIdx = chapters.indexOfFirst { it.id == currentChapterId }
+        if (currentIdx != -1 && currentIdx < chapters.size - 1) {
+            currentCharOffsetInChapter = 0
+            loadChapter(chapters[currentIdx + 1].id)
+            return@withContext true
         }
         false
     }
 
     override suspend fun previousPage(): Boolean = withContext(Dispatchers.IO) {
-        if (currentPageIndex > 0) {
+        if (currentPageIndex > 0 && cachedPages.isNotEmpty()) {
             currentPageIndex--
             currentCharOffsetInChapter = cachedPages[currentPageIndex].startCharOffset
             updateRelativeProgress()
             return@withContext true
-        } else {
-            // Move to previous chapter
-            val chapters = chapterIndex?.items ?: return@withContext false
-            val currentIdx = chapters.indexOfFirst { it.id == currentChapterId }
-            if (currentIdx > 0) {
-                val prevChapter = chapters[currentIdx - 1]
-                loadChapter(prevChapter.id)
-                currentPageIndex = (cachedPages.size - 1).coerceAtLeast(0)
-                currentCharOffsetInChapter = cachedPages.getOrNull(currentPageIndex)?.startCharOffset ?: 0
-                updateRelativeProgress()
-                return@withContext true
-            }
+        }
+        val chapters = chapterIndex?.items ?: return@withContext false
+        val currentIdx = chapters.indexOfFirst { it.id == currentChapterId }
+        if (currentIdx > 0) {
+            loadChapter(chapters[currentIdx - 1].id)
+            val last = (cachedPages.size - 1).coerceAtLeast(0)
+            currentPageIndex = last
+            currentCharOffsetInChapter = cachedPages.getOrNull(last)?.startCharOffset ?: 0
+            updateRelativeProgress()
+            return@withContext true
         }
         false
     }
@@ -206,12 +196,9 @@ class TxtReaderEngine : ReaderEngine {
             charsPerLineEstimated = layout.charsPerLine,
             linesPerPageEstimated = layout.linesPerPage
         )
-        if (cachedChapterContent.isEmpty()) return@withContext
-        val offset = currentCharOffsetInChapter
         cachedPages = paginationEngine.paginate(cachedChapterContent)
-        currentPageIndex = paginationEngine.findPageIndexForOffset(cachedPages, offset)
-        currentCharOffsetInChapter = cachedPages.getOrNull(currentPageIndex)?.startCharOffset ?: offset
-        updateRelativeProgress()
+        currentPageIndex = paginationEngine.findPageIndexForOffset(cachedPages, currentCharOffsetInChapter)
+        // Page index is presentation. Reflow must not rewrite currentCharOffsetInChapter.
     }
 
     private fun com.example.leafreader.reader.txt.TxtSearchResult.toEngineResult(): SearchResult {
@@ -228,9 +215,10 @@ class TxtReaderEngine : ReaderEngine {
     }
 
     private suspend fun loadChapter(chapterId: String) = withContext(Dispatchers.IO) {
-        currentChapterId = chapterId
         val idx = chapterIndex ?: return@withContext
-        val chapterItem = idx.getChapterById(chapterId) ?: idx.items.firstOrNull() ?: return@withContext
+        val resolved = TxtKernel.resolveChapterId(chapterId, idx.items.map { it.id }) ?: return@withContext
+        currentChapterId = resolved
+        val chapterItem = idx.getChapterById(resolved) ?: return@withContext
 
         cachedChapterContent = if (streamReader != null && currentFile?.exists() == true) {
             streamReader!!.readChapterContent(chapterItem.startByteOffset, chapterItem.endByteOffset)
@@ -239,6 +227,7 @@ class TxtReaderEngine : ReaderEngine {
         }
 
         cachedPages = paginationEngine.paginate(cachedChapterContent)
+        currentPageIndex = paginationEngine.findPageIndexForOffset(cachedPages, currentCharOffsetInChapter)
         updateRelativeProgress()
     }
 
@@ -253,9 +242,9 @@ class TxtReaderEngine : ReaderEngine {
 
     private fun createFallbackIndex(bookId: Long): ChapterIndex {
         val items = listOf(
-            com.example.leafreader.reader.txt.ChapterIndexItem("c1", "第一章 启程", 1, 0, 1000, 0, 450),
-            com.example.leafreader.reader.txt.ChapterIndexItem("c2", "第二章 窥秘", 2, 1000, 2500, 450, 600),
-            com.example.leafreader.reader.txt.ChapterIndexItem("c3", "第三章 廷根", 3, 2500, 4200, 1050, 720)
+            ChapterIndexItem("ch_1", "第一章 雾港", 1, 0, 1000, 0, 450),
+            ChapterIndexItem("ch_2", "第二章 测深", 2, 1000, 2500, 450, 600),
+            ChapterIndexItem("ch_3", "第三章 船灯", 3, 2500, 4200, 1050, 720)
         )
         return ChapterIndex(bookId, Charsets.UTF_8, 4200, 1770, items)
     }
@@ -263,12 +252,11 @@ class TxtReaderEngine : ReaderEngine {
     private fun getDefaultChapterText(title: String): String {
         return """
             $title
-            
-            窗外的薄雾渐渐散开，清晨的第一缕阳光透过窗棂洒在泛黄的木桌上。
-            克莱恩整理好衬衣的领口，将那枚深银色的怀表放入马甲口袋，指尖触碰到冷硬的金属表面。
-            
-            “今天该去廷根市的黑荆棘安保公司报到了……”
-            他低声自语了一句，推开了房门。
+
+            雾还贴在码头上，灯是一盏一盏点起来的。
+            测深锤沉进水里，绳子上的记号被潮气浸暗。
+
+            没有人催。船灯稳，就先把这一页读完。
         """.trimIndent()
     }
 }
